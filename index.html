@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run From the Cat</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #171923;
+      color: #f7fafc;
+      font-family: system-ui, Arial, sans-serif;
+    }
+    .game-wrap { width: min(900px, 94vw); text-align: center; }
+    h1 { margin: 0 0 8px; letter-spacing: 1px; }
+    p { margin: 0 0 14px; color: #cbd5e0; }
+    canvas {
+      display: block;
+      width: 100%;
+      background: #bfe8f5;
+      border: 4px solid #f7fafc;
+      border-radius: 12px;
+      image-rendering: pixelated;
+    }
+    .controls { margin-top: 12px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    button {
+      border: 0; border-radius: 8px; padding: 11px 18px;
+      font: inherit; font-weight: 700; cursor: pointer;
+      color: #171923; background: #f6ad55;
+    }
+    button:hover { background: #fbd38d; }
+    .hint { font-size: 0.9rem; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <main class="game-wrap">
+    <h1>RUN FROM THE CAT</h1>
+    <p>Keep running. Don't let the cat catch you!</p>
+    <canvas id="game" width="900" height="420" aria-label="Run From the Cat game"></canvas>
+    <div class="controls">
+      <button id="jumpBtn" type="button">JUMP ⬆</button>
+      <button id="restartBtn" type="button">RESTART ↻</button>
+    </div>
+    <p class="hint">Jump: Space / W / ↑ · On mobile, tap JUMP · Avoid the boxes!</p>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const jumpBtn = document.getElementById("jumpBtn");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const groundY = 345;
+    let player, cat, obstacles, score, speed, spawnTimer, gameOver, lastTime;
+
+    function resetGame() {
+      player = { x: 170, y: groundY - 48, w: 32, h: 48, vy: 0, onGround: true };
+      cat = { x: 45, y: groundY - 42, w: 58, h: 42 };
+      obstacles = [];
+      score = 0;
+      speed = 5;
+      spawnTimer = 70;
+      gameOver = false;
+      lastTime = 0;
+      requestAnimationFrame(loop);
+    }
+
+    function jump() {
+      if (!gameOver && player.onGround) {
+        player.vy = -13;
+        player.onGround = false;
+      }
+    }
+
+    function drawCloud(x, y) {
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.beginPath();
+      ctx.arc(x, y, 18, 0, Math.PI * 2);
+      ctx.arc(x + 20, y - 8, 23, 0, Math.PI * 2);
+      ctx.arc(x + 43, y, 17, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawPlayer() {
+      // Simple running person
+      ctx.fillStyle = "#2563eb";
+      ctx.fillRect(player.x + 7, player.y + 17, 19, 23);
+      ctx.fillStyle = "#f2c9a5";
+      ctx.beginPath();
+      ctx.arc(player.x + 17, player.y + 10, 11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#33251f";
+      ctx.fillRect(player.x + 7, player.y + 0, 20, 6);
+      ctx.fillRect(player.x + 4, player.y + 5, 6, 8);
+      ctx.fillStyle = "#1e3a8a";
+      const legSwing = Math.sin(score / 5) * 5;
+      ctx.fillRect(player.x + 8, player.y + 38, 7, 10 + legSwing);
+      ctx.fillRect(player.x + 20, player.y + 38, 7, 10 - legSwing);
+      ctx.strokeStyle = "#f2c9a5";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(player.x + 8, player.y + 23);
+      ctx.lineTo(player.x + 1, player.y + 31 + Math.sin(score / 4) * 4);
+      ctx.moveTo(player.x + 25, player.y + 23);
+      ctx.lineTo(player.x + 32, player.y + 29 - Math.sin(score / 4) * 4);
+      ctx.stroke();
+    }
+
+    function drawCat() {
+      const x = cat.x, y = cat.y;
+      // Tail
+      ctx.strokeStyle = "#3b2d2a";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(x + 8, y + 28);
+      ctx.quadraticCurveTo(x - 9, y + 15, x + 2, y + 7);
+      ctx.stroke();
+      // Body and head
+      ctx.fillStyle = "#3b2d2a";
+      ctx.fillRect(x + 8, y + 18, 39, 22);
+      ctx.beginPath();
+      ctx.arc(x + 43, y + 17, 15, 0, Math.PI * 2);
+      ctx.fill();
+      // Ears
+      ctx.beginPath();
+      ctx.moveTo(x + 31, y + 8); ctx.lineTo(x + 33, y - 5); ctx.lineTo(x + 42, y + 5);
+      ctx.moveTo(x + 44, y + 5); ctx.lineTo(x + 54, y - 4); ctx.lineTo(x + 56, y + 12);
+      ctx.fill();
+      // Face
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(x + 37, y + 13, 4, 5);
+      ctx.fillRect(x + 48, y + 13, 4, 5);
+      ctx.fillStyle = "#171923";
+      ctx.fillRect(x + 39, y + 14, 2, 3);
+      ctx.fillRect(x + 50, y + 14, 2, 3);
+      ctx.fillStyle = "#f59eaa";
+      ctx.fillRect(x + 43, y + 21, 5, 3);
+      // Legs
+      ctx.fillStyle = "#3b2d2a";
+      ctx.fillRect(x + 13, y + 34, 7, 9);
+      ctx.fillRect(x + 37, y + 34, 7, 9);
+      // Whiskers
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 34, y + 23); ctx.lineTo(x + 23, y + 20);
+      ctx.moveTo(x + 34, y + 26); ctx.lineTo(x + 23, y + 28);
+      ctx.moveTo(x + 51, y + 23); ctx.lineTo(x + 62, y + 20);
+      ctx.moveTo(x + 51, y + 26); ctx.lineTo(x + 62, y + 28);
+      ctx.stroke();
+    }
+
+    function drawScene() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Sky and sun
+      ctx.fillStyle = "#bfe8f5";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#ffdf70";
+      ctx.beginPath(); ctx.arc(760, 72, 32, 0, Math.PI * 2); ctx.fill();
+      drawCloud(130, 80);
+      drawCloud(430, 55);
+      // Distant hills
+      ctx.fillStyle = "#8bd0a3";
+      ctx.beginPath();
+      ctx.moveTo(0, 280); ctx.quadraticCurveTo(150, 190, 300, 280);
+      ctx.quadraticCurveTo(480, 190, 650, 280);
+      ctx.quadraticCurveTo(790, 205, 900, 260);
+      ctx.lineTo(900, 350); ctx.lineTo(0, 350); ctx.fill();
+      // Ground
+      ctx.fillStyle = "#5d9b55";
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+      ctx.fillStyle = "#367a3d";
+      ctx.fillRect(0, groundY, canvas.width, 8);
+      // Moving ground marks
+      ctx.fillStyle = "#c4e5a4";
+      for (let i = 0; i < 14; i++) {
+        let x = ((i * 85 - score * 3) % 980 + 980) % 980;
+        ctx.fillRect(x, groundY + 24 + (i % 3) * 15, 28, 4);
+      }
+      obstacles.forEach(o => {
+        ctx.fillStyle = "#9a6038";
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.fillStyle = "#c58a55";
+        ctx.fillRect(o.x + 5, o.y + 5, o.w - 10, 6);
+      });
+      drawCat();
+      drawPlayer();
+      // Score
+      ctx.fillStyle = "#17324d";
+      ctx.font = "bold 22px system-ui, sans-serif";
+      ctx.fillText("Score: " + Math.floor(score / 5), 22, 34);
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(15, 18, 30, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ff5b65";
+        ctx.font = "bold 66px system-ui, sans-serif";
+        ctx.fillText("YOU DIED", canvas.width / 2, 180);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 24px system-ui, sans-serif";
+        ctx.fillText("The cat caught you!", canvas.width / 2, 225);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("Press RESTART to try again", canvas.width / 2, 267);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function overlaps(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x &&
+             a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function loop(timestamp) {
+      if (gameOver) { drawScene(); return; }
+      const dt = lastTime ? Math.min((timestamp - lastTime) / 16.67, 2) : 1;
+      lastTime = timestamp;
+      score += dt;
+      speed = Math.min(5 + score / 250, 10);
+
+      // Cat steadily catches up if you don't keep moving and jumping well.
+      cat.x += (0.65 + score / 1500) * dt;
+      cat.x = Math.min(cat.x, player.x - 22);
+
+      // Jump physics
+      player.vy += 0.68 * dt;
+      player.y += player.vy * dt;
+      if (player.y >= groundY - player.h) {
+        player.y = groundY - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      }
+
+      // Spawn obstacles
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        const h = 25 + Math.random() * 22;
+        obstacles.push({ x: canvas.width + 10, y: groundY - h, w: 24 + Math.random() * 12, h });
+        spawnTimer = 65 + Math.random() * 45;
+      }
+      obstacles.forEach(o => o.x -= speed * dt);
+      obstacles = obstacles.filter(o => o.x + o.w > -5);
+
+      const playerHitbox = { x: player.x + 4, y: player.y + 3, w: player.w - 8, h: player.h - 3 };
+      const catHitbox = { x: cat.x + 8, y: cat.y + 4, w: cat.w - 8, h: cat.h - 4 };
+      if (overlaps(playerHitbox, catHitbox) || obstacles.some(o => overlaps(playerHitbox, o))) {
+        gameOver = true;
+      }
+
+      drawScene();
+      if (!gameOver) requestAnimationFrame(loop);
+    }
+
+    document.addEventListener("keydown", e => {
+      if (["Space", "ArrowUp", "KeyW"].includes(e.code)) {
+        e.preventDefault();
+        jump();
+      }
+    });
+    jumpBtn.addEventListener("click", jump);
+    canvas.addEventListener("pointerdown", jump);
+    restartBtn.addEventListener("click", resetGame);
+
+    resetGame();
+  </script>
+</body>
+</html>
